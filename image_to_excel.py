@@ -10,161 +10,131 @@ import numpy as np
 import google.generativeai as genai
 import json
 
-# Helper functions for image preprocessing and table extraction
-def preprocess_image(image):
-    """Preprocess image for better OCR results"""
-    # Convert PIL Image to OpenCV format
-    img_array = np.array(image)
-    
-    # Convert to grayscale
-    if len(img_array.shape) == 3:
-        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-    else:
-        gray = img_array
-    
-    # Apply thresholding to get better contrast
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    # Denoise
-    denoised = cv2.fastNlMeansDenoising(thresh)
-    
-    # Convert back to PIL Image
-    return Image.fromarray(denoised)
+# Set page configuration with dark theme
+st.set_page_config(
+    page_title="Invoice to Excel Converter",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-def extract_table_data(text):
-    """Extract table data from OCR text"""
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
+# Custom CSS for modern UI
+st.markdown("""
+<style>
+    /* Main theme */
+    .stApp {
+        background-color: #1a1a1a;
+    }
     
-    # Try to identify header and data rows
-    table_data = []
-    headers = []
+    /* Headers */
+    h1, h2, h3 {
+        color: #ffffff !important;
+    }
     
-    # Look for common table patterns
-    for i, line in enumerate(lines):
-        # Skip very short lines or numbers-only lines at the beginning
-        if len(line) < 3 or (line.isdigit() and i < 5):
-            continue
-            
-        # Identify potential headers (lines with words like "Item", "Qty", "Unit", etc.)
-        if any(keyword in line.lower() for keyword in ['item', 'qty', 'quantity', 'unit', 'name', 'description']):
-            # Try to split into columns
-            parts = re.split(r'\s{2,}|\t', line)
-            if len(parts) > 1:
-                headers.extend(parts)
-        else:
-            # Try to extract data rows
-            # Split by multiple spaces or tabs
-            parts = re.split(r'\s{2,}|\t', line)
-            if len(parts) > 1 or any(c.isalnum() for c in line):
-                table_data.append(line)
+    /* Upload section */
+    .upload-section {
+        background-color: #2a2a2a;
+        border: 2px dashed #555;
+        border-radius: 15px;
+        padding: 60px 40px;
+        text-align: center;
+        margin: 20px 0;
+    }
     
-    return headers, table_data
+    /* Table styling */
+    .dataframe {
+        background-color: #2a2a2a !important;
+        color: #ffffff !important;
+        border: 1px solid #444 !important;
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        background-color: #4CAF50;
+        color: white;
+        border-radius: 8px;
+        padding: 10px 24px;
+        border: none;
+        font-weight: 600;
+    }
+    
+    .stButton > button:hover {
+        background-color: #45a049;
+    }
+    
+    /* Download button */
+    .download-btn {
+        background-color: #2196F3;
+        color: white;
+        padding: 12px 30px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+        display: inline-block;
+        margin-top: 20px;
+    }
+    
+    /* Text input */
+    .stTextInput > div > div > input {
+        background-color: #333;
+        color: white;
+        border: 1px solid #555;
+        border-radius: 5px;
+    }
+    
+    /* Success/Error messages */
+    .stSuccess, .stError {
+        background-color: #2a2a2a;
+        border-radius: 8px;
+        padding: 15px;
+    }
+    
+    /* Data editor */
+    .stDataFrame {
+        border-radius: 10px;
+        overflow: hidden;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-def smart_parse_to_dataframe(text):
-    """Intelligently parse text into a structured dataframe"""
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
-    
-    # Remove very short lines and clean up
-    cleaned_lines = []
-    for line in lines:
-        # Remove excessive spaces
-        line = re.sub(r'\s+', ' ', line)
-        if len(line) > 2 and not line.replace('.', '').replace('-', '').replace('_', '').strip() == '':
-            cleaned_lines.append(line)
-    
-    # Try to identify table structure
-    data_rows = []
-    header_found = False
-    potential_headers = []
-    
-    for i, line in enumerate(cleaned_lines):
-        # Split by multiple spaces, tabs, or special delimiters
-        parts = re.split(r'\s{2,}|\t|\|', line)
-        parts = [p.strip() for p in parts if p.strip()]
-        
-        # Look for header indicators
-        if not header_found and any(keyword in line.lower() for keyword in 
-                                     ['item', 'name', 'qty', 'quantity', 'unit', 'description', 'product']):
-            potential_headers = parts
-            header_found = True
-            continue
-        
-        # If we have multiple parts, it's likely a data row
-        if len(parts) >= 2:
-            data_rows.append(parts)
-        elif len(parts) == 1 and header_found:
-            # Single item might be a row item, add empty columns
-            data_rows.append([parts[0], '', ''])
-    
-    # If no clear headers found, create generic ones
-    if not potential_headers and data_rows:
-        max_cols = max(len(row) for row in data_rows)
-        potential_headers = [f'Column {i+1}' for i in range(max_cols)]
-    
-    # Ensure all rows have the same number of columns
-    if data_rows and potential_headers:
-        max_cols = len(potential_headers)
-        for row in data_rows:
-            while len(row) < max_cols:
-                row.append('')
-            if len(row) > max_cols:
-                row = row[:max_cols]
-    
-    # Create dataframe
-    if data_rows:
-        df = pd.DataFrame(data_rows, columns=potential_headers if potential_headers else None)
-        return df
-    else:
-        # Fallback: one column with all text
-        return pd.DataFrame(cleaned_lines, columns=['Extracted Text'])
-
+# Helper function for Gemini extraction
 def extract_table_with_gemini(image, api_key):
     """Extract table data using Google Gemini Vision API"""
     try:
-        # Configure Gemini
         genai.configure(api_key=api_key)
-        # Use the latest stable vision model - Gemini 2.5 Flash
         model = genai.GenerativeModel('models/gemini-2.5-flash')
         
-        # Create prompt for table extraction
         prompt = """
-        Analyze this image and extract ALL data in a structured table format.
+        Analyze this invoice/form image and extract ALL data in a structured table format.
         
         Instructions:
-        1. Identify all column headers (like Item, Quantity, Unit, Price, etc.)
+        1. Identify all column headers (like S.No., Item, Quantity, Unit, Rate, Total, etc.)
         2. Extract ALL rows of data
-        3. Maintain the exact text and numbers as they appear
-        4. Return the data as a JSON object with this structure:
+        3. Maintain exact text and numbers as they appear
+        4. Return data as JSON:
         {
-            "headers": ["Column1", "Column2", "Column3"],
+            "headers": ["S.No.", "Food Item", "Quantity", "Unit", "Rate", "Total"],
             "rows": [
-                ["value1", "value2", "value3"],
-                ["value1", "value2", "value3"]
+                ["1", "Item Name", "10", "kg", "100", "1000"],
+                ["2", "Item Name 2", "5", "ltr", "50", "250"]
             ]
         }
         
         Important:
-        - Extract EVERY row visible in the image
-        - If a cell is empty, use an empty string ""
-        - Preserve all text exactly as shown
-        - Don't skip any data
-        - Return ONLY the JSON, no other text
+        - Extract EVERY row visible
+        - Use empty string "" for missing cells
+        - Preserve exact text
+        - Return ONLY JSON, no other text
         """
         
-        # Generate response
         response = model.generate_content([prompt, image])
-        
-        # Parse JSON from response
         response_text = response.text.strip()
         
-        # Remove markdown code blocks if present
         if response_text.startswith('```'):
             response_text = re.sub(r'^```json?\s*|\s*```$', '', response_text, flags=re.MULTILINE)
         
-        # Parse JSON
         data = json.loads(response_text)
         
-        # Create DataFrame
         if 'headers' in data and 'rows' in data:
             df = pd.DataFrame(data['rows'], columns=data['headers'])
             return df, None
@@ -172,314 +142,174 @@ def extract_table_with_gemini(image, api_key):
             return None, "Invalid response format from Gemini"
             
     except json.JSONDecodeError as e:
-        return None, f"Failed to parse Gemini response: {str(e)}\n\nResponse was: {response_text[:500]}"
+        return None, f"Failed to parse response: {str(e)}"
     except Exception as e:
         return None, f"Gemini API error: {str(e)}"
 
-# Set page configuration
-st.set_page_config(
-    page_title="Image to Excel Converter",
-    page_icon="📊",
-    layout="wide"
-)
-
-# Title and description
-st.title("📸 Image to Excel Converter")
-st.markdown("Upload an image and extract text to save it in an Excel file")
-
-# Sidebar for configuration
-st.sidebar.header("⚙️ Settings")
-
-# Extraction method selection
-extraction_method = st.sidebar.radio(
-    "Extraction Method",
-    ["🤖 Gemini AI (Recommended)", "📝 Tesseract OCR"],
-    help="Gemini AI provides much better accuracy for tables"
-)
-
-# API Key input for Gemini
-if extraction_method == "🤖 Gemini AI (Recommended)":
-    # Check if API key exists in secrets
+# Get API key
+if 'api_key' not in st.session_state:
     default_key = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, 'secrets') else ""
+    st.session_state.api_key = default_key
+
+# Initialize session state for dataframe
+if 'df' not in st.session_state:
+    st.session_state.df = pd.DataFrame({
+        'S.No.': [1],
+        'Food Item': [''],
+        'Quantity': [1],
+        'Unit': [''],
+        'Rate': [0],
+        'Total': [0.00]
+    })
+
+# Header
+col1, col2 = st.columns([1, 3])
+with col1:
+    st.title("📄 Invoice Extractor")
+with col2:
+    # API Key input (top right)
+    api_key = st.text_input("🔑 Gemini API Key", 
+                            value=st.session_state.api_key,
+                            type="password",
+                            placeholder="Enter your API key",
+                            help="Get free key from https://aistudio.google.com/app/apikey")
+    if api_key:
+        st.session_state.api_key = api_key
+
+st.markdown("---")
+
+# Two column layout
+col_left, col_right = st.columns([1, 1.5], gap="large")
+
+# LEFT COLUMN - Upload Section
+with col_left:
+    st.markdown("### 📤 Upload Invoice")
     
-    if default_key:
-        gemini_api_key = default_key
-        st.sidebar.success("✅ Using API key from secrets")
-    else:
-        gemini_api_key = st.sidebar.text_input(
-            "Gemini API Key",
-            type="password",
-            help="Get your free API key from https://makersuite.google.com/app/apikey"
-        )
-        
-        if not gemini_api_key:
-            st.sidebar.warning("⚠️ Please enter your Gemini API key")
-            st.sidebar.markdown("[Get free API key →](https://makersuite.google.com/app/apikey)")
-else:
-    gemini_api_key = None
-    language = st.sidebar.selectbox(
-        "OCR Language",
-        ["eng", "eng+hin", "fra", "deu", "spa"],
-        help="Select the language for text recognition"
+    uploaded_file = st.file_uploader(
+        "Choose an image file",
+        type=["png", "jpg", "jpeg", "pdf"],
+        help="Supports JPG, PNG, PDF",
+        label_visibility="collapsed"
     )
-
-# Instructions
-with st.expander("📋 Instructions"):
-    st.markdown("""
-    1. Upload an image file (PNG, JPG, JPEG)
-    2. The app will extract text using OCR
-    3. Review the extracted text
-    4. Choose how to organize the data
-    5. Download the Excel file
-    """)
-
-# File uploader
-uploaded_file = st.file_uploader(
-    "Choose an image file",
-    type=["png", "jpg", "jpeg"],
-    help="Upload an image containing text"
-)
-
-if uploaded_file is not None:
-    # Create two columns for layout
-    col1, col2 = st.columns([1, 1])
     
-    with col1:
-        st.subheader("📷 Uploaded Image")
-        # Display the uploaded image
+    if uploaded_file:
+        # Display uploaded image
         image = Image.open(uploaded_file)
-        st.image(image, use_container_width=True)
+        st.image(image, use_container_width=True, caption="Uploaded Invoice")
         
-        # Image information
-        st.info(f"**Image Size:** {image.size[0]} x {image.size[1]} pixels")
-    
-    with col2:
-        st.subheader("📝 Extracted Data")
-        
-        # Check if using Gemini and API key is provided
-        if extraction_method == "🤖 Gemini AI (Recommended)" and not gemini_api_key:
-            st.warning("⚠️ Please enter your Gemini API key in the sidebar to extract data")
-            extracted_text = None
-            gemini_df = None
-        else:
-            # Extract data
-            with st.spinner("Extracting data from image..."):
-                try:
-                    if extraction_method == "🤖 Gemini AI (Recommended)":
-                        # Use Gemini for extraction
-                        gemini_df, error = extract_table_with_gemini(image, gemini_api_key)
-                        
-                        if error:
-                            st.error(f"❌ {error}")
-                            extracted_text = None
-                            gemini_df = None
-                        else:
-                            st.success("✅ Data extracted successfully with Gemini AI!")
-                            st.markdown("**Extracted Table:**")
-                            st.dataframe(gemini_df, use_container_width=True)
-                            extracted_text = "gemini_extracted"  # Flag for later processing
-                    else:
-                        # Use Tesseract OCR
-                        gemini_df = None
-                        
-                        # Image preprocessing option
-                        use_preprocessing = st.checkbox(
-                            "🔧 Use image preprocessing (improves OCR accuracy)",
-                            value=True,
-                            help="Applies grayscale conversion, thresholding, and denoising"
-                        )
-                        
-                        # Preprocess image if selected
-                        processed_image = preprocess_image(image) if use_preprocessing else image
-                        
-                        # Perform OCR with table detection
-                        extracted_text = pytesseract.image_to_string(
-                            processed_image, 
-                            lang=language,
-                            config='--psm 6'  # Assume uniform block of text
-                        )
-                        
-                        if extracted_text.strip():
-                            # Display extracted text
-                            st.text_area(
-                                "Raw Text",
-                                extracted_text,
-                                height=300,
-                                help="This is the raw text extracted from the image"
-                            )
-                            
-                            st.success("✅ Text extracted successfully!")
-                        else:
-                            st.warning("⚠️ No text found in the image. Please try another image.")
-                            extracted_text = None
-                        
-                except Exception as e:
-                    st.error(f"❌ Error during extraction: {str(e)}")
-                    if extraction_method == "📝 Tesseract OCR":
-                        st.info("Make sure tesseract is installed on your system")
-                    extracted_text = None
-                    gemini_df = None
-    
-    # If text was extracted, provide Excel export options
-    if extracted_text and extracted_text.strip():
-        st.divider()
-        st.subheader("📊 Export to Excel")
-        
-        # If using Gemini, use the extracted dataframe directly
-        if extraction_method == "🤖 Gemini AI (Recommended)" and gemini_df is not None:
-            df = gemini_df.copy()
-            
-            # Allow editing headers
-            st.markdown("**Customize Column Headers (optional):**")
-            col_count = len(df.columns)
-            new_headers = []
-            
-            cols = st.columns(min(col_count, 4))
-            for i, col_name in enumerate(df.columns):
-                with cols[i % 4]:
-                    new_header = st.text_input(
-                        f"Column {i+1}",
-                        value=str(col_name),
-                        key=f"gemini_header_{i}"
-                    )
-                    new_headers.append(new_header if new_header else f"Column {i+1}")
-            
-            df.columns = new_headers
-            
-        else:
-            # Tesseract OCR - show format options
-            export_format = st.radio(
-                "Select how to organize the data:",
-                ["Smart Table Detection (Recommended)", 
-                 "Single Column (One row per line)", 
-                 "Manual Table Format", 
-                 "Single Cell (All text in one cell)"],
-                help="Choose how the extracted text should be structured in Excel"
-            )
-            
-            # Prepare dataframe based on selected format
-            if export_format == "Smart Table Detection (Recommended)":
-                # Use intelligent parsing
-                df = smart_parse_to_dataframe(extracted_text)
-                
-                # Allow manual editing of headers
-                st.markdown("**Customize Column Headers:**")
-                col_count = len(df.columns)
-                new_headers = []
-                
-                cols = st.columns(min(col_count, 4))
-                for i, col_name in enumerate(df.columns):
-                    with cols[i % 4]:
-                        new_header = st.text_input(
-                            f"Column {i+1}",
-                            value=str(col_name),
-                            key=f"header_{i}"
-                        )
-                        new_headers.append(new_header if new_header else f"Column {i+1}")
-                
-                df.columns = new_headers
-                
-            elif export_format == "Single Column (One row per line)":
-                # Split text by lines and create dataframe
-                lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
-                df = pd.DataFrame(lines, columns=["Extracted Text"])
-                
-            elif export_format == "Manual Table Format":
-                # Manual column configuration
-                st.markdown("**Configure Table Structure:**")
-                num_columns = st.number_input("Number of columns", min_value=1, max_value=10, value=3)
-                
-                # Get column headers
-                header_cols = st.columns(num_columns)
-                headers = []
-                for i in range(num_columns):
-                    with header_cols[i]:
-                        header = st.text_input(f"Header {i+1}", value=f"Column {i+1}", key=f"manual_header_{i}")
-                        headers.append(header)
-                
-                # Try to detect tabular structure
-                lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
-                rows = []
-                for line in lines:
-                    # Split by multiple spaces or tabs
-                    cols = re.split(r'\s{2,}|\t', line)
-                    # Adjust to match number of columns
-                    while len(cols) < num_columns:
-                        cols.append("")
-                    if len(cols) > num_columns:
-                        cols = cols[:num_columns]
-                    rows.append(cols)
-                
-                # Create dataframe
-                if rows:
-                    df = pd.DataFrame(rows, columns=headers)
-                else:
-                    df = pd.DataFrame(columns=headers)
+        # Extract button
+        if st.button("🚀 Extract Data", use_container_width=True, type="primary"):
+            if not st.session_state.api_key:
+                st.error("❌ Please enter your Gemini API key above")
+            else:
+                with st.spinner("🔍 Extracting data from invoice..."):
+                    df, error = extract_table_with_gemini(image, st.session_state.api_key)
                     
-            else:  # Single Cell
-                df = pd.DataFrame([[extracted_text]], columns=["Extracted Text"])
-        
-        # Preview the dataframe
-        st.markdown("**Preview:**")
-        st.dataframe(df, use_container_width=True)
-        
-        # Add metadata option
-        add_metadata = st.checkbox("Include metadata (filename, date, etc.)")
-        
-        if add_metadata:
-            metadata_df = pd.DataFrame({
-                "Metadata": ["Source File", "Extraction Date", "Image Size"],
-                "Value": [
-                    uploaded_file.name,
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    f"{image.size[0]} x {image.size[1]}"
-                ]
+                    if error:
+                        st.error(f"❌ {error}")
+                    else:
+                        st.session_state.df = df
+                        st.success("✅ Data extracted successfully!")
+                        st.rerun()
+    else:
+        # Upload placeholder
+        st.markdown("""
+        <div class="upload-section">
+            <h3>☁️ Drag & drop your invoice here</h3>
+            <p style="color: #999;">or click to browse</p>
+            <p style="color: #666; font-size: 14px; margin-top: 20px;">Supports JPG, PNG, PDF</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+# RIGHT COLUMN - Extracted Data
+with col_right:
+    st.markdown("### 📊 Extracted Data")
+    
+    # Show editable dataframe
+    edited_df = st.data_editor(
+        st.session_state.df,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "S.No.": st.column_config.NumberColumn("S.No.", width="small"),
+            "Food Item": st.column_config.TextColumn("Food Item", width="large"),
+            "Quantity": st.column_config.NumberColumn("Quantity", width="medium"),
+            "Unit": st.column_config.TextColumn("Unit", width="small"),
+            "Rate": st.column_config.NumberColumn("Rate", width="medium", format="%.2f"),
+            "Total": st.column_config.NumberColumn("Total", width="medium", format="%.2f")
+        },
+        hide_index=True,
+        height=400
+    )
+    
+    # Update session state
+    st.session_state.df = edited_df
+    
+    # Action buttons
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
+    
+    with col_btn1:
+        if st.button("➕ Add Row", use_container_width=True):
+            new_row = pd.DataFrame({
+                'S.No.': [len(st.session_state.df) + 1],
+                'Food Item': [''],
+                'Quantity': [1],
+                'Unit': [''],
+                'Rate': [0],
+                'Total': [0.00]
             })
-            st.markdown("**Metadata to include:**")
-            st.dataframe(metadata_df, use_container_width=True)
-        
-        # Create Excel file in memory
+            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+            st.rerun()
+    
+    with col_btn2:
+        if st.button("🗑️ Clear All", use_container_width=True):
+            st.session_state.df = pd.DataFrame({
+                'S.No.': [1],
+                'Food Item': [''],
+                'Quantity': [1],
+                'Unit': [''],
+                'Rate': [0],
+                'Total': [0.00]
+            })
+            st.rerun()
+    
+    with col_btn3:
+        # Export to Excel
         output = io.BytesIO()
-        
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Extracted Data', index=False)
-            
-            if add_metadata:
-                metadata_df.to_excel(writer, sheet_name='Metadata', index=False)
+            st.session_state.df.to_excel(writer, sheet_name='Invoice Data', index=False)
         
         excel_data = output.getvalue()
         
-        # Download button
         st.download_button(
-            label="📥 Download Excel File",
+            label="📥 Download Excel",
             data=excel_data,
-            file_name=f"extracted_text_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            file_name=f"invoice_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+            use_container_width=True,
+            type="primary"
         )
-
-else:
-    # Show placeholder when no file is uploaded
-    st.info("👆 Please upload an image file to get started")
     
-    # Sample image placeholder
-    st.markdown("---")
-    st.markdown("### 💡 Tips for best results:")
-    st.markdown("""
-    - Use high-resolution images with clear text
-    - Ensure good contrast between text and background
-    - Avoid blurry or rotated images
-    - For better accuracy, crop the image to contain only the text area
-    """)
+    # Summary
+    if len(st.session_state.df) > 0:
+        st.markdown("---")
+        col_sum1, col_sum2, col_sum3 = st.columns(3)
+        
+        with col_sum1:
+            st.metric("Total Items", len(st.session_state.df))
+        with col_sum2:
+            total_qty = st.session_state.df['Quantity'].sum() if 'Quantity' in st.session_state.df else 0
+            st.metric("Total Quantity", f"{total_qty}")
+        with col_sum3:
+            total_amount = st.session_state.df['Total'].sum() if 'Total' in st.session_state.df else 0
+            st.metric("Grand Total", f"₹{total_amount:.2f}")
 
 # Footer
 st.markdown("---")
-st.markdown(
-    """
-    <div style='text-align: center; color: #666;'>
-        Made with ❤️ using Streamlit | Powered by Tesseract OCR
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
+st.markdown("""
+<div style='text-align: center; color: #666; padding: 20px;'>
+    <p>Powered by <strong>Google Gemini AI</strong> ✨ | Made with ❤️ using Streamlit</p>
+    <p style='font-size: 12px; margin-top: 10px;'>Get your free API key: 
+    <a href='https://aistudio.google.com/app/apikey' target='_blank' style='color: #4CAF50;'>Google AI Studio</a></p>
+</div>
+""", unsafe_allow_html=True)
