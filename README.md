@@ -1,57 +1,54 @@
-# Image to Excel Converter 📸📊
+# Invoice to Excel Converter 📄✨
 
-A Streamlit web application that extracts text from images using OCR (Optical Character Recognition) and exports it to Excel format.
+A beautiful, modern Streamlit web application that extracts invoice/table data from images using AI and exports it to Excel format with an editable interface.
 
 ## Features
 
-- 📤 Upload images (PNG, JPG, JPEG)
-- 🤖 **NEW: Gemini AI extraction (Recommended)** - Superior accuracy for tables
-- 🔍 Alternative: Tesseract OCR for text extraction
-- 📊 Multiple export formats:
-  - Smart table detection with AI
-  - Single column (one row per line)
-  - Table format (auto-detect columns)
-  - Manual table configuration
-  - Single cell (all text in one cell)
-- 🌍 Multi-language support
-- 📥 Download extracted data as Excel file
-- 📋 Optional metadata inclusion
-- ✏️ Editable column headers
-- 🎨 Clean and intuitive user interface
+### 🎨 Modern UI Design
+- **Dark theme** with clean, professional interface
+- **Two-panel layout**: Upload on left, editable table on right
+- **Drag & drop** file upload support
+- **Real-time preview** of uploaded invoices
+
+### 🤖 AI-Powered Extraction
+- **Gemini 2.5 Flash AI** for superior accuracy
+- Automatically detects table structure, headers, and data
+- Handles complex invoice layouts
+- Supports invoices, bills, forms, and any tabular data
+
+### ✏️ Interactive Data Editing
+- **Editable table** - modify any cell directly in browser
+- **Add/remove rows** dynamically
+- **Column types**: Numbers, text, formatted currency
+- **Real-time calculations** for totals
+- **Clear all** to start fresh
+
+### 📊 Smart Features
+- **Live summary metrics**: Total items, quantities, grand total
+- **Auto-numbering** for S.No. column
+- **Formatted output** with proper data types
+- **One-click Excel export** with timestamp
+
+### 🔒 Secure & Private
+- API key stored locally (never pushed to GitHub)
+- All processing happens client-side
+- No data stored on servers
 
 ## Prerequisites
 
-### Option 1: Gemini AI (Recommended) 🤖
+### Get Your Free Gemini API Key 🔑
 
-Get a **free** Gemini API key for best results:
-
-1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. Sign in with your Google account
-3. Click "Create API Key"
+3. Click **"Create API Key"**
 4. Copy your API key
-5. Enter it in the app sidebar when using Gemini extraction
+5. Paste it in the app (top right corner)
 
-**Why Gemini?**
-- Much better accuracy for table extraction
-- Understands complex layouts
-- No local installation needed
-- Free tier available
-
-### Option 2: Tesseract OCR
-
-**macOS:**
-```bash
-brew install tesseract
-```
-
-**Ubuntu/Debian:**
-```bash
-sudo apt-get update
-sudo apt-get install tesseract-ocr
-```
-
-**Windows:**
-Download and install from: https://github.com/UB-Mannheim/tesseract/wiki
+**Why Gemini AI?**
+- ✨ Superior accuracy for invoice/table extraction
+- 🧠 Understands complex layouts and handwriting
+- 🚀 No local installation required
+- 💯 Free tier available (60 requests/minute)
 
 ## Installation
 
@@ -66,24 +63,29 @@ pip install -r requirements.txt
 
 ### Local Development
 
-1. Run the Streamlit app:
+1. **Run the Streamlit app:**
 ```bash
 streamlit run image_to_excel.py
 ```
 
-2. Open your browser (it should open automatically) to `http://localhost:8501`
+2. **Open your browser** (auto-opens) at `http://localhost:8501`
 
-3. **Choose extraction method in sidebar:**
-   - **Gemini AI (Recommended):** Enter your API key for best results
-   - **Tesseract OCR:** Uses local OCR (requires Tesseract installation)
+3. **Enter your Gemini API key** in the top-right field
 
-4. Upload an image containing text or a table
+4. **Upload an invoice/image:**
+   - Drag & drop into the upload area, OR
+   - Click to browse and select a file
+   - Supports: JPG, PNG, PDF
 
-5. Review the extracted data
+5. **Click "Extract Data"** to process with AI
 
-6. Customize column headers if needed
+6. **Edit the extracted table:**
+   - Click any cell to edit
+   - Add rows with the "Add Row" button
+   - Delete rows using the table controls
+   - Modify quantities, rates, totals
 
-7. Download the Excel file
+7. **Download Excel** with one click - file includes all your edits!
 
 ### Deploy to Streamlit Cloud
 
