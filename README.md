@@ -5,19 +5,39 @@ A Streamlit web application that extracts text from images using OCR (Optical Ch
 ## Features
 
 - 📤 Upload images (PNG, JPG, JPEG)
-- 🔍 Extract text using Tesseract OCR
+- 🤖 **NEW: Gemini AI extraction (Recommended)** - Superior accuracy for tables
+- 🔍 Alternative: Tesseract OCR for text extraction
 - 📊 Multiple export formats:
+  - Smart table detection with AI
   - Single column (one row per line)
   - Table format (auto-detect columns)
+  - Manual table configuration
   - Single cell (all text in one cell)
 - 🌍 Multi-language support
 - 📥 Download extracted data as Excel file
 - 📋 Optional metadata inclusion
+- ✏️ Editable column headers
 - 🎨 Clean and intuitive user interface
 
 ## Prerequisites
 
-### Install Tesseract OCR
+### Option 1: Gemini AI (Recommended) 🤖
+
+Get a **free** Gemini API key for best results:
+
+1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Sign in with your Google account
+3. Click "Create API Key"
+4. Copy your API key
+5. Enter it in the app sidebar when using Gemini extraction
+
+**Why Gemini?**
+- Much better accuracy for table extraction
+- Understands complex layouts
+- No local installation needed
+- Free tier available
+
+### Option 2: Tesseract OCR
 
 **macOS:**
 ```bash
@@ -53,13 +73,17 @@ streamlit run image_to_excel.py
 
 2. Open your browser (it should open automatically) to `http://localhost:8501`
 
-3. Upload an image containing text
+3. **Choose extraction method in sidebar:**
+   - **Gemini AI (Recommended):** Enter your API key for best results
+   - **Tesseract OCR:** Uses local OCR (requires Tesseract installation)
 
-4. Review the extracted text
+4. Upload an image containing text or a table
 
-5. Choose your preferred export format
+5. Review the extracted data
 
-6. Download the Excel file
+6. Customize column headers if needed
+
+7. Download the Excel file
 
 ### Deploy to Streamlit Cloud
 
@@ -110,9 +134,11 @@ You can add more languages by installing additional Tesseract language packs.
 ## Technologies Used
 
 - **Streamlit**: Web application framework
-- **Tesseract OCR**: Text extraction engine
+- **Google Gemini AI**: Advanced AI-powered table extraction
+- **Tesseract OCR**: Alternative text extraction engine
 - **Pandas**: Data manipulation and Excel export
 - **Pillow**: Image processing
+- **OpenCV**: Image preprocessing
 - **OpenPyXL**: Excel file handling
 
 ## License
