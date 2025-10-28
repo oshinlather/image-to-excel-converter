@@ -28,6 +28,8 @@ A beautiful, modern Streamlit web application that extracts invoice/table data f
 - **Auto-numbering** for S.No. column
 - **Formatted output** with proper data types
 - **One-click Excel export** with timestamp
+- **Google Sheets integration** - Write directly to spreadsheets
+- **Auto-calculate expressions** - Type "50+5" and it becomes 55
 
 ### 🔒 Secure & Private
 - API key stored locally (never pushed to GitHub)
@@ -86,6 +88,12 @@ streamlit run image_to_excel.py
    - Modify quantities, rates, totals
 
 7. **Download Excel** with one click - file includes all your edits!
+
+8. **Write to Google Sheets** (optional):
+   - Enter your Google Spreadsheet URL
+   - Click "Write to Sheets"
+   - Data syncs instantly!
+   - See [GOOGLE_SHEETS_SETUP.md](GOOGLE_SHEETS_SETUP.md) for setup instructions
 
 ### Deploy to Streamlit Cloud
 
