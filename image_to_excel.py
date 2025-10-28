@@ -4,6 +4,117 @@ from PIL import Image
 import pytesseract
 import io
 from datetime import datetime
+import re
+import cv2
+import numpy as np
+
+# Helper functions for image preprocessing and table extraction
+def preprocess_image(image):
+    """Preprocess image for better OCR results"""
+    # Convert PIL Image to OpenCV format
+    img_array = np.array(image)
+    
+    # Convert to grayscale
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    # Apply thresholding to get better contrast
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Denoise
+    denoised = cv2.fastNlMeansDenoising(thresh)
+    
+    # Convert back to PIL Image
+    return Image.fromarray(denoised)
+
+def extract_table_data(text):
+    """Extract table data from OCR text"""
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    
+    # Try to identify header and data rows
+    table_data = []
+    headers = []
+    
+    # Look for common table patterns
+    for i, line in enumerate(lines):
+        # Skip very short lines or numbers-only lines at the beginning
+        if len(line) < 3 or (line.isdigit() and i < 5):
+            continue
+            
+        # Identify potential headers (lines with words like "Item", "Qty", "Unit", etc.)
+        if any(keyword in line.lower() for keyword in ['item', 'qty', 'quantity', 'unit', 'name', 'description']):
+            # Try to split into columns
+            parts = re.split(r'\s{2,}|\t', line)
+            if len(parts) > 1:
+                headers.extend(parts)
+        else:
+            # Try to extract data rows
+            # Split by multiple spaces or tabs
+            parts = re.split(r'\s{2,}|\t', line)
+            if len(parts) > 1 or any(c.isalnum() for c in line):
+                table_data.append(line)
+    
+    return headers, table_data
+
+def smart_parse_to_dataframe(text):
+    """Intelligently parse text into a structured dataframe"""
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    
+    # Remove very short lines and clean up
+    cleaned_lines = []
+    for line in lines:
+        # Remove excessive spaces
+        line = re.sub(r'\s+', ' ', line)
+        if len(line) > 2 and not line.replace('.', '').replace('-', '').replace('_', '').strip() == '':
+            cleaned_lines.append(line)
+    
+    # Try to identify table structure
+    data_rows = []
+    header_found = False
+    potential_headers = []
+    
+    for i, line in enumerate(cleaned_lines):
+        # Split by multiple spaces, tabs, or special delimiters
+        parts = re.split(r'\s{2,}|\t|\|', line)
+        parts = [p.strip() for p in parts if p.strip()]
+        
+        # Look for header indicators
+        if not header_found and any(keyword in line.lower() for keyword in 
+                                     ['item', 'name', 'qty', 'quantity', 'unit', 'description', 'product']):
+            potential_headers = parts
+            header_found = True
+            continue
+        
+        # If we have multiple parts, it's likely a data row
+        if len(parts) >= 2:
+            data_rows.append(parts)
+        elif len(parts) == 1 and header_found:
+            # Single item might be a row item, add empty columns
+            data_rows.append([parts[0], '', ''])
+    
+    # If no clear headers found, create generic ones
+    if not potential_headers and data_rows:
+        max_cols = max(len(row) for row in data_rows)
+        potential_headers = [f'Column {i+1}' for i in range(max_cols)]
+    
+    # Ensure all rows have the same number of columns
+    if data_rows and potential_headers:
+        max_cols = len(potential_headers)
+        for row in data_rows:
+            while len(row) < max_cols:
+                row.append('')
+            if len(row) > max_cols:
+                row = row[:max_cols]
+    
+    # Create dataframe
+    if data_rows:
+        df = pd.DataFrame(data_rows, columns=potential_headers if potential_headers else None)
+        return df
+    else:
+        # Fallback: one column with all text
+        return pd.DataFrame(cleaned_lines, columns=['Extracted Text'])
 
 # Set page configuration
 st.set_page_config(
@@ -57,11 +168,25 @@ if uploaded_file is not None:
     with col2:
         st.subheader("📝 Extracted Text")
         
+        # Image preprocessing option
+        use_preprocessing = st.checkbox(
+            "🔧 Use image preprocessing (improves OCR accuracy)",
+            value=True,
+            help="Applies grayscale conversion, thresholding, and denoising"
+        )
+        
         # Extract text using OCR
         with st.spinner("Extracting text from image..."):
             try:
-                # Perform OCR
-                extracted_text = pytesseract.image_to_string(image, lang=language)
+                # Preprocess image if selected
+                processed_image = preprocess_image(image) if use_preprocessing else image
+                
+                # Perform OCR with table detection
+                extracted_text = pytesseract.image_to_string(
+                    processed_image, 
+                    lang=language,
+                    config='--psm 6'  # Assume uniform block of text
+                )
                 
                 if extracted_text.strip():
                     # Display extracted text
@@ -90,42 +215,71 @@ if uploaded_file is not None:
         # Choose export format
         export_format = st.radio(
             "Select how to organize the data:",
-            ["Single Column (One row per line)", 
-             "Table Format (Auto-detect columns)", 
+            ["Smart Table Detection (Recommended)", 
+             "Single Column (One row per line)", 
+             "Manual Table Format", 
              "Single Cell (All text in one cell)"],
             help="Choose how the extracted text should be structured in Excel"
         )
         
         # Prepare dataframe based on selected format
-        if export_format == "Single Column (One row per line)":
+        if export_format == "Smart Table Detection (Recommended)":
+            # Use intelligent parsing
+            df = smart_parse_to_dataframe(extracted_text)
+            
+            # Allow manual editing of headers
+            st.markdown("**Customize Column Headers:**")
+            col_count = len(df.columns)
+            new_headers = []
+            
+            cols = st.columns(min(col_count, 4))
+            for i, col_name in enumerate(df.columns):
+                with cols[i % 4]:
+                    new_header = st.text_input(
+                        f"Column {i+1}",
+                        value=str(col_name),
+                        key=f"header_{i}"
+                    )
+                    new_headers.append(new_header if new_header else f"Column {i+1}")
+            
+            df.columns = new_headers
+            
+        elif export_format == "Single Column (One row per line)":
             # Split text by lines and create dataframe
             lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
             df = pd.DataFrame(lines, columns=["Extracted Text"])
             
-        elif export_format == "Table Format (Auto-detect columns)":
+        elif export_format == "Manual Table Format":
+            # Manual column configuration
+            st.markdown("**Configure Table Structure:**")
+            num_columns = st.number_input("Number of columns", min_value=1, max_value=10, value=3)
+            
+            # Get column headers
+            header_cols = st.columns(num_columns)
+            headers = []
+            for i in range(num_columns):
+                with header_cols[i]:
+                    header = st.text_input(f"Header {i+1}", value=f"Column {i+1}", key=f"manual_header_{i}")
+                    headers.append(header)
+            
             # Try to detect tabular structure
             lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
             rows = []
             for line in lines:
                 # Split by multiple spaces or tabs
-                import re
                 cols = re.split(r'\s{2,}|\t', line)
+                # Adjust to match number of columns
+                while len(cols) < num_columns:
+                    cols.append("")
+                if len(cols) > num_columns:
+                    cols = cols[:num_columns]
                 rows.append(cols)
-            
-            # Find maximum number of columns
-            max_cols = max(len(row) for row in rows) if rows else 1
-            
-            # Pad rows to have same number of columns
-            for row in rows:
-                while len(row) < max_cols:
-                    row.append("")
             
             # Create dataframe
             if rows:
-                df = pd.DataFrame(rows[1:] if len(rows) > 1 else rows, 
-                                columns=rows[0] if len(rows) > 1 else [f"Column {i+1}" for i in range(max_cols)])
+                df = pd.DataFrame(rows, columns=headers)
             else:
-                df = pd.DataFrame()
+                df = pd.DataFrame(columns=headers)
                 
         else:  # Single Cell
             df = pd.DataFrame([[extracted_text]], columns=["Extracted Text"])
