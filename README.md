@@ -96,7 +96,7 @@ streamlit run image_to_excel.py
 3. Sign in with GitHub
 
 4. Click "New app" and select:
-   - Repository: `oshinlather/image-to-excel-converter`
+   - Repository: `oshinlather/imptac`
    - Branch: `main`
    - Main file path: `image_to_excel.py`
 
