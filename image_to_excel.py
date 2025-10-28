@@ -198,15 +198,22 @@ extraction_method = st.sidebar.radio(
 
 # API Key input for Gemini
 if extraction_method == "🤖 Gemini AI (Recommended)":
-    gemini_api_key = st.sidebar.text_input(
-        "Gemini API Key",
-        type="password",
-        help="Get your free API key from https://makersuite.google.com/app/apikey"
-    )
+    # Check if API key exists in secrets
+    default_key = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, 'secrets') else ""
     
-    if not gemini_api_key:
-        st.sidebar.warning("⚠️ Please enter your Gemini API key")
-        st.sidebar.markdown("[Get free API key →](https://makersuite.google.com/app/apikey)")
+    if default_key:
+        gemini_api_key = default_key
+        st.sidebar.success("✅ Using API key from secrets")
+    else:
+        gemini_api_key = st.sidebar.text_input(
+            "Gemini API Key",
+            type="password",
+            help="Get your free API key from https://makersuite.google.com/app/apikey"
+        )
+        
+        if not gemini_api_key:
+            st.sidebar.warning("⚠️ Please enter your Gemini API key")
+            st.sidebar.markdown("[Get free API key →](https://makersuite.google.com/app/apikey)")
 else:
     gemini_api_key = None
     language = st.sidebar.selectbox(
