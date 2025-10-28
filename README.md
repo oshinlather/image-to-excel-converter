@@ -44,6 +44,8 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Local Development
+
 1. Run the Streamlit app:
 ```bash
 streamlit run image_to_excel.py
@@ -58,6 +60,23 @@ streamlit run image_to_excel.py
 5. Choose your preferred export format
 
 6. Download the Excel file
+
+### Deploy to Streamlit Cloud
+
+1. Push your code to GitHub (this repository includes the necessary `packages.txt` file)
+
+2. Go to [share.streamlit.io](https://share.streamlit.io/)
+
+3. Sign in with GitHub
+
+4. Click "New app" and select:
+   - Repository: `oshinlather/image-to-excel-converter`
+   - Branch: `main`
+   - Main file path: `image_to_excel.py`
+
+5. Click "Deploy"!
+
+**Note:** The `packages.txt` file in this repository ensures Tesseract OCR is installed automatically on Streamlit Cloud.
 
 ## Tips for Best Results
 
