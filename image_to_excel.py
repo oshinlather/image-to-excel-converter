@@ -10,6 +10,26 @@ import numpy as np
 import google.generativeai as genai
 import json
 
+# Helper function to evaluate math expressions
+def calculate_expression(value):
+    """Calculate mathematical expressions like '50+5' -> 55"""
+    if pd.isna(value):
+        return value
+    
+    # Convert to string and clean
+    value_str = str(value).strip()
+    
+    # Check if it contains math operators
+    if any(op in value_str for op in ['+', '-', '*', '/']):
+        try:
+            # Safely evaluate the expression
+            result = eval(value_str, {"__builtins__": {}}, {})
+            return result
+        except:
+            return value
+    
+    return value
+
 # Set page configuration with dark theme
 st.set_page_config(
     page_title="Invoice to Excel Converter",
@@ -156,10 +176,8 @@ if 'df' not in st.session_state:
     st.session_state.df = pd.DataFrame({
         'S.No.': [1],
         'Food Item': [''],
-        'Quantity': [1],
         'Unit': [''],
-        'Rate': [0],
-        'Total': [0.00]
+        'Required Qty': ['']
     })
 
 # Header
@@ -208,6 +226,12 @@ with col_left:
                     if error:
                         st.error(f"❌ {error}")
                     else:
+                        # Process extracted data - calculate any math expressions
+                        if 'Quantity' in df.columns:
+                            df['Quantity'] = df['Quantity'].apply(calculate_expression)
+                        if 'Required Qty' in df.columns:
+                            df['Required Qty'] = df['Required Qty'].apply(calculate_expression)
+                        
                         st.session_state.df = df
                         st.success("✅ Data extracted successfully!")
                         st.rerun()
@@ -225,6 +249,9 @@ with col_left:
 with col_right:
     st.markdown("### 📊 Extracted Data")
     
+    # Info message about auto-calculation
+    st.info("💡 **Tip:** Type math expressions like '50+5' in quantity fields - they'll auto-calculate!", icon="✨")
+    
     # Show editable dataframe
     edited_df = st.data_editor(
         st.session_state.df,
@@ -233,14 +260,21 @@ with col_right:
         column_config={
             "S.No.": st.column_config.NumberColumn("S.No.", width="small"),
             "Food Item": st.column_config.TextColumn("Food Item", width="large"),
-            "Quantity": st.column_config.NumberColumn("Quantity", width="medium"),
-            "Unit": st.column_config.TextColumn("Unit", width="small"),
-            "Rate": st.column_config.NumberColumn("Rate", width="medium", format="%.2f"),
-            "Total": st.column_config.NumberColumn("Total", width="medium", format="%.2f")
+            "Unit": st.column_config.TextColumn("Unit", width="medium"),
+            "Required Qty": st.column_config.TextColumn("Required Qty", width="medium", help="Auto-calculates: 50+5 = 55"),
+            "Quantity": st.column_config.TextColumn("Quantity", width="medium", help="Auto-calculates: 50+5 = 55") if "Quantity" in st.session_state.df.columns else None,
+            "Rate": st.column_config.NumberColumn("Rate", width="medium", format="%.2f") if "Rate" in st.session_state.df.columns else None,
+            "Total": st.column_config.NumberColumn("Total", width="medium", format="%.2f") if "Total" in st.session_state.df.columns else None
         },
         hide_index=True,
         height=400
     )
+    
+    # Process edited data - automatically calculate math expressions in quantity columns
+    if 'Quantity' in edited_df.columns:
+        edited_df['Quantity'] = edited_df['Quantity'].apply(calculate_expression)
+    if 'Required Qty' in edited_df.columns:
+        edited_df['Required Qty'] = edited_df['Required Qty'].apply(calculate_expression)
     
     # Update session state
     st.session_state.df = edited_df
@@ -250,14 +284,13 @@ with col_right:
     
     with col_btn1:
         if st.button("➕ Add Row", use_container_width=True):
-            new_row = pd.DataFrame({
-                'S.No.': [len(st.session_state.df) + 1],
-                'Food Item': [''],
-                'Quantity': [1],
-                'Unit': [''],
-                'Rate': [0],
-                'Total': [0.00]
-            })
+            # Create new row with same columns as current df
+            new_row_data = {'S.No.': len(st.session_state.df) + 1}
+            for col in st.session_state.df.columns:
+                if col != 'S.No.':
+                    new_row_data[col] = '' if col in ['Food Item', 'Unit', 'Required Qty'] else 0
+            
+            new_row = pd.DataFrame([new_row_data])
             st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
             st.rerun()
     
@@ -266,10 +299,8 @@ with col_right:
             st.session_state.df = pd.DataFrame({
                 'S.No.': [1],
                 'Food Item': [''],
-                'Quantity': [1],
                 'Unit': [''],
-                'Rate': [0],
-                'Total': [0.00]
+                'Required Qty': ['']
             })
             st.rerun()
     
@@ -293,16 +324,35 @@ with col_right:
     # Summary
     if len(st.session_state.df) > 0:
         st.markdown("---")
-        col_sum1, col_sum2, col_sum3 = st.columns(3)
         
-        with col_sum1:
-            st.metric("Total Items", len(st.session_state.df))
-        with col_sum2:
-            total_qty = st.session_state.df['Quantity'].sum() if 'Quantity' in st.session_state.df else 0
-            st.metric("Total Quantity", f"{total_qty}")
-        with col_sum3:
-            total_amount = st.session_state.df['Total'].sum() if 'Total' in st.session_state.df else 0
-            st.metric("Grand Total", f"₹{total_amount:.2f}")
+        # Dynamic summary based on available columns
+        if 'Total' in st.session_state.df.columns:
+            col_sum1, col_sum2, col_sum3 = st.columns(3)
+            
+            with col_sum1:
+                st.metric("Total Items", len(st.session_state.df))
+            with col_sum2:
+                # Check for either Quantity or Required Qty column
+                if 'Required Qty' in st.session_state.df.columns:
+                    total_qty = pd.to_numeric(st.session_state.df['Required Qty'], errors='coerce').sum()
+                    st.metric("Total Required Qty", f"{total_qty:.0f}")
+                elif 'Quantity' in st.session_state.df.columns:
+                    total_qty = pd.to_numeric(st.session_state.df['Quantity'], errors='coerce').sum()
+                    st.metric("Total Quantity", f"{total_qty:.0f}")
+            with col_sum3:
+                total_amount = st.session_state.df['Total'].sum() if 'Total' in st.session_state.df else 0
+                st.metric("Grand Total", f"₹{total_amount:.2f}")
+        else:
+            # Simple summary for food demand forms
+            col_sum1, col_sum2 = st.columns(2)
+            
+            with col_sum1:
+                st.metric("Total Items", len(st.session_state.df))
+            with col_sum2:
+                if 'Required Qty' in st.session_state.df.columns:
+                    # Count non-empty items
+                    filled_items = st.session_state.df['Required Qty'].astype(str).str.strip().ne('').sum()
+                    st.metric("Items with Quantity", filled_items)
 
 # Footer
 st.markdown("---")
