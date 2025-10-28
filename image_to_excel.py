@@ -7,6 +7,8 @@ from datetime import datetime
 import re
 import cv2
 import numpy as np
+import google.generativeai as genai
+import json
 
 # Helper functions for image preprocessing and table extraction
 def preprocess_image(image):
@@ -116,6 +118,63 @@ def smart_parse_to_dataframe(text):
         # Fallback: one column with all text
         return pd.DataFrame(cleaned_lines, columns=['Extracted Text'])
 
+def extract_table_with_gemini(image, api_key):
+    """Extract table data using Google Gemini Vision API"""
+    try:
+        # Configure Gemini
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Create prompt for table extraction
+        prompt = """
+        Analyze this image and extract ALL data in a structured table format.
+        
+        Instructions:
+        1. Identify all column headers (like Item, Quantity, Unit, Price, etc.)
+        2. Extract ALL rows of data
+        3. Maintain the exact text and numbers as they appear
+        4. Return the data as a JSON object with this structure:
+        {
+            "headers": ["Column1", "Column2", "Column3"],
+            "rows": [
+                ["value1", "value2", "value3"],
+                ["value1", "value2", "value3"]
+            ]
+        }
+        
+        Important:
+        - Extract EVERY row visible in the image
+        - If a cell is empty, use an empty string ""
+        - Preserve all text exactly as shown
+        - Don't skip any data
+        - Return ONLY the JSON, no other text
+        """
+        
+        # Generate response
+        response = model.generate_content([prompt, image])
+        
+        # Parse JSON from response
+        response_text = response.text.strip()
+        
+        # Remove markdown code blocks if present
+        if response_text.startswith('```'):
+            response_text = re.sub(r'^```json?\s*|\s*```$', '', response_text, flags=re.MULTILINE)
+        
+        # Parse JSON
+        data = json.loads(response_text)
+        
+        # Create DataFrame
+        if 'headers' in data and 'rows' in data:
+            df = pd.DataFrame(data['rows'], columns=data['headers'])
+            return df, None
+        else:
+            return None, "Invalid response format from Gemini"
+            
+    except json.JSONDecodeError as e:
+        return None, f"Failed to parse Gemini response: {str(e)}\n\nResponse was: {response_text[:500]}"
+    except Exception as e:
+        return None, f"Gemini API error: {str(e)}"
+
 # Set page configuration
 st.set_page_config(
     page_title="Image to Excel Converter",
@@ -129,11 +188,32 @@ st.markdown("Upload an image and extract text to save it in an Excel file")
 
 # Sidebar for configuration
 st.sidebar.header("⚙️ Settings")
-language = st.sidebar.selectbox(
-    "OCR Language",
-    ["eng", "eng+hin", "fra", "deu", "spa"],
-    help="Select the language for text recognition"
+
+# Extraction method selection
+extraction_method = st.sidebar.radio(
+    "Extraction Method",
+    ["🤖 Gemini AI (Recommended)", "📝 Tesseract OCR"],
+    help="Gemini AI provides much better accuracy for tables"
 )
+
+# API Key input for Gemini
+if extraction_method == "🤖 Gemini AI (Recommended)":
+    gemini_api_key = st.sidebar.text_input(
+        "Gemini API Key",
+        type="password",
+        help="Get your free API key from https://makersuite.google.com/app/apikey"
+    )
+    
+    if not gemini_api_key:
+        st.sidebar.warning("⚠️ Please enter your Gemini API key")
+        st.sidebar.markdown("[Get free API key →](https://makersuite.google.com/app/apikey)")
+else:
+    gemini_api_key = None
+    language = st.sidebar.selectbox(
+        "OCR Language",
+        ["eng", "eng+hin", "fra", "deu", "spa"],
+        help="Select the language for text recognition"
+    )
 
 # Instructions
 with st.expander("📋 Instructions"):
@@ -166,69 +246,83 @@ if uploaded_file is not None:
         st.info(f"**Image Size:** {image.size[0]} x {image.size[1]} pixels")
     
     with col2:
-        st.subheader("📝 Extracted Text")
+        st.subheader("📝 Extracted Data")
         
-        # Image preprocessing option
-        use_preprocessing = st.checkbox(
-            "🔧 Use image preprocessing (improves OCR accuracy)",
-            value=True,
-            help="Applies grayscale conversion, thresholding, and denoising"
-        )
-        
-        # Extract text using OCR
-        with st.spinner("Extracting text from image..."):
-            try:
-                # Preprocess image if selected
-                processed_image = preprocess_image(image) if use_preprocessing else image
-                
-                # Perform OCR with table detection
-                extracted_text = pytesseract.image_to_string(
-                    processed_image, 
-                    lang=language,
-                    config='--psm 6'  # Assume uniform block of text
-                )
-                
-                if extracted_text.strip():
-                    # Display extracted text
-                    st.text_area(
-                        "Raw Text",
-                        extracted_text,
-                        height=300,
-                        help="This is the raw text extracted from the image"
-                    )
-                    
-                    st.success("✅ Text extracted successfully!")
-                else:
-                    st.warning("⚠️ No text found in the image. Please try another image.")
+        # Check if using Gemini and API key is provided
+        if extraction_method == "🤖 Gemini AI (Recommended)" and not gemini_api_key:
+            st.warning("⚠️ Please enter your Gemini API key in the sidebar to extract data")
+            extracted_text = None
+            gemini_df = None
+        else:
+            # Extract data
+            with st.spinner("Extracting data from image..."):
+                try:
+                    if extraction_method == "🤖 Gemini AI (Recommended)":
+                        # Use Gemini for extraction
+                        gemini_df, error = extract_table_with_gemini(image, gemini_api_key)
+                        
+                        if error:
+                            st.error(f"❌ {error}")
+                            extracted_text = None
+                            gemini_df = None
+                        else:
+                            st.success("✅ Data extracted successfully with Gemini AI!")
+                            st.markdown("**Extracted Table:**")
+                            st.dataframe(gemini_df, use_container_width=True)
+                            extracted_text = "gemini_extracted"  # Flag for later processing
+                    else:
+                        # Use Tesseract OCR
+                        gemini_df = None
+                        
+                        # Image preprocessing option
+                        use_preprocessing = st.checkbox(
+                            "🔧 Use image preprocessing (improves OCR accuracy)",
+                            value=True,
+                            help="Applies grayscale conversion, thresholding, and denoising"
+                        )
+                        
+                        # Preprocess image if selected
+                        processed_image = preprocess_image(image) if use_preprocessing else image
+                        
+                        # Perform OCR with table detection
+                        extracted_text = pytesseract.image_to_string(
+                            processed_image, 
+                            lang=language,
+                            config='--psm 6'  # Assume uniform block of text
+                        )
+                        
+                        if extracted_text.strip():
+                            # Display extracted text
+                            st.text_area(
+                                "Raw Text",
+                                extracted_text,
+                                height=300,
+                                help="This is the raw text extracted from the image"
+                            )
+                            
+                            st.success("✅ Text extracted successfully!")
+                        else:
+                            st.warning("⚠️ No text found in the image. Please try another image.")
+                            extracted_text = None
+                        
+                except Exception as e:
+                    st.error(f"❌ Error during extraction: {str(e)}")
+                    if extraction_method == "📝 Tesseract OCR":
+                        st.info("Make sure tesseract is installed on your system")
                     extracted_text = None
-                    
-            except Exception as e:
-                st.error(f"❌ Error during text extraction: {str(e)}")
-                st.info("Make sure tesseract is installed on your system")
-                extracted_text = None
+                    gemini_df = None
     
     # If text was extracted, provide Excel export options
     if extracted_text and extracted_text.strip():
         st.divider()
         st.subheader("📊 Export to Excel")
         
-        # Choose export format
-        export_format = st.radio(
-            "Select how to organize the data:",
-            ["Smart Table Detection (Recommended)", 
-             "Single Column (One row per line)", 
-             "Manual Table Format", 
-             "Single Cell (All text in one cell)"],
-            help="Choose how the extracted text should be structured in Excel"
-        )
-        
-        # Prepare dataframe based on selected format
-        if export_format == "Smart Table Detection (Recommended)":
-            # Use intelligent parsing
-            df = smart_parse_to_dataframe(extracted_text)
+        # If using Gemini, use the extracted dataframe directly
+        if extraction_method == "🤖 Gemini AI (Recommended)" and gemini_df is not None:
+            df = gemini_df.copy()
             
-            # Allow manual editing of headers
-            st.markdown("**Customize Column Headers:**")
+            # Allow editing headers
+            st.markdown("**Customize Column Headers (optional):**")
             col_count = len(df.columns)
             new_headers = []
             
@@ -238,51 +332,84 @@ if uploaded_file is not None:
                     new_header = st.text_input(
                         f"Column {i+1}",
                         value=str(col_name),
-                        key=f"header_{i}"
+                        key=f"gemini_header_{i}"
                     )
                     new_headers.append(new_header if new_header else f"Column {i+1}")
             
             df.columns = new_headers
             
-        elif export_format == "Single Column (One row per line)":
-            # Split text by lines and create dataframe
-            lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
-            df = pd.DataFrame(lines, columns=["Extracted Text"])
+        else:
+            # Tesseract OCR - show format options
+            export_format = st.radio(
+                "Select how to organize the data:",
+                ["Smart Table Detection (Recommended)", 
+                 "Single Column (One row per line)", 
+                 "Manual Table Format", 
+                 "Single Cell (All text in one cell)"],
+                help="Choose how the extracted text should be structured in Excel"
+            )
             
-        elif export_format == "Manual Table Format":
-            # Manual column configuration
-            st.markdown("**Configure Table Structure:**")
-            num_columns = st.number_input("Number of columns", min_value=1, max_value=10, value=3)
-            
-            # Get column headers
-            header_cols = st.columns(num_columns)
-            headers = []
-            for i in range(num_columns):
-                with header_cols[i]:
-                    header = st.text_input(f"Header {i+1}", value=f"Column {i+1}", key=f"manual_header_{i}")
-                    headers.append(header)
-            
-            # Try to detect tabular structure
-            lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
-            rows = []
-            for line in lines:
-                # Split by multiple spaces or tabs
-                cols = re.split(r'\s{2,}|\t', line)
-                # Adjust to match number of columns
-                while len(cols) < num_columns:
-                    cols.append("")
-                if len(cols) > num_columns:
-                    cols = cols[:num_columns]
-                rows.append(cols)
-            
-            # Create dataframe
-            if rows:
-                df = pd.DataFrame(rows, columns=headers)
-            else:
-                df = pd.DataFrame(columns=headers)
+            # Prepare dataframe based on selected format
+            if export_format == "Smart Table Detection (Recommended)":
+                # Use intelligent parsing
+                df = smart_parse_to_dataframe(extracted_text)
                 
-        else:  # Single Cell
-            df = pd.DataFrame([[extracted_text]], columns=["Extracted Text"])
+                # Allow manual editing of headers
+                st.markdown("**Customize Column Headers:**")
+                col_count = len(df.columns)
+                new_headers = []
+                
+                cols = st.columns(min(col_count, 4))
+                for i, col_name in enumerate(df.columns):
+                    with cols[i % 4]:
+                        new_header = st.text_input(
+                            f"Column {i+1}",
+                            value=str(col_name),
+                            key=f"header_{i}"
+                        )
+                        new_headers.append(new_header if new_header else f"Column {i+1}")
+                
+                df.columns = new_headers
+                
+            elif export_format == "Single Column (One row per line)":
+                # Split text by lines and create dataframe
+                lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
+                df = pd.DataFrame(lines, columns=["Extracted Text"])
+                
+            elif export_format == "Manual Table Format":
+                # Manual column configuration
+                st.markdown("**Configure Table Structure:**")
+                num_columns = st.number_input("Number of columns", min_value=1, max_value=10, value=3)
+                
+                # Get column headers
+                header_cols = st.columns(num_columns)
+                headers = []
+                for i in range(num_columns):
+                    with header_cols[i]:
+                        header = st.text_input(f"Header {i+1}", value=f"Column {i+1}", key=f"manual_header_{i}")
+                        headers.append(header)
+                
+                # Try to detect tabular structure
+                lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
+                rows = []
+                for line in lines:
+                    # Split by multiple spaces or tabs
+                    cols = re.split(r'\s{2,}|\t', line)
+                    # Adjust to match number of columns
+                    while len(cols) < num_columns:
+                        cols.append("")
+                    if len(cols) > num_columns:
+                        cols = cols[:num_columns]
+                    rows.append(cols)
+                
+                # Create dataframe
+                if rows:
+                    df = pd.DataFrame(rows, columns=headers)
+                else:
+                    df = pd.DataFrame(columns=headers)
+                    
+            else:  # Single Cell
+                df = pd.DataFrame([[extracted_text]], columns=["Extracted Text"])
         
         # Preview the dataframe
         st.markdown("**Preview:**")
