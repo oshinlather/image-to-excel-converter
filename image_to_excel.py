@@ -123,8 +123,8 @@ def extract_table_with_gemini(image, api_key):
     try:
         # Configure Gemini
         genai.configure(api_key=api_key)
-        # Use gemini-1.5-pro for multimodal support
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        # Use the latest stable vision model - Gemini 2.5 Flash
+        model = genai.GenerativeModel('models/gemini-2.5-flash')
         
         # Create prompt for table extraction
         prompt = """
