@@ -9,6 +9,8 @@ import cv2
 import numpy as np
 import google.generativeai as genai
 import json
+import gspread
+from google.oauth2.service_account import Credentials
 
 # Helper function to evaluate math expressions
 def calculate_expression(value):
@@ -29,6 +31,51 @@ def calculate_expression(value):
             return value
     
     return value
+
+# Helper functions for Google Sheets integration
+def connect_to_google_sheets():
+    """Connect to Google Sheets using service account credentials"""
+    try:
+        # Try to get credentials from Streamlit secrets
+        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+            credentials = Credentials.from_service_account_info(
+                st.secrets["gcp_service_account"],
+                scopes=[
+                    "https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive"
+                ]
+            )
+            client = gspread.authorize(credentials)
+            return client, None
+        else:
+            return None, "Google Sheets credentials not found in secrets"
+    except Exception as e:
+        return None, f"Failed to connect to Google Sheets: {str(e)}"
+
+def write_to_google_sheet(client, spreadsheet_url, df, sheet_name="Sheet1"):
+    """Write dataframe to Google Sheets"""
+    try:
+        # Open the spreadsheet
+        spreadsheet = client.open_by_url(spreadsheet_url)
+        
+        # Try to get the worksheet, create if doesn't exist
+        try:
+            worksheet = spreadsheet.worksheet(sheet_name)
+        except gspread.exceptions.WorksheetNotFound:
+            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=20)
+        
+        # Clear existing data
+        worksheet.clear()
+        
+        # Convert dataframe to list of lists
+        data = [df.columns.tolist()] + df.values.tolist()
+        
+        # Write data to sheet
+        worksheet.update('A1', data)
+        
+        return True, None
+    except Exception as e:
+        return False, f"Failed to write to Google Sheets: {str(e)}"
 
 # Set page configuration with dark theme
 st.set_page_config(
@@ -320,6 +367,57 @@ with col_right:
             use_container_width=True,
             type="primary"
         )
+    
+    # Google Sheets Integration
+    st.markdown("---")
+    st.markdown("### 📊 Write to Google Sheets")
+    
+    # Spreadsheet URL input
+    spreadsheet_url = st.text_input(
+        "Google Spreadsheet URL",
+        placeholder="https://docs.google.com/spreadsheets/d/...",
+        help="Paste the full URL of your Google Spreadsheet"
+    )
+    
+    # Sheet name input
+    col_sheet1, col_sheet2 = st.columns([2, 1])
+    with col_sheet1:
+        sheet_name = st.text_input(
+            "Sheet Name",
+            value="Sheet1",
+            help="Name of the sheet to write data to"
+        )
+    
+    with col_sheet2:
+        if st.button("📤 Write to Sheets", use_container_width=True, type="secondary"):
+            if not spreadsheet_url:
+                st.error("❌ Please enter a Google Spreadsheet URL")
+            else:
+                with st.spinner("Writing to Google Sheets..."):
+                    client, error = connect_to_google_sheets()
+                    
+                    if error:
+                        st.error(f"❌ {error}")
+                        st.info("""
+                        **Setup Required:**
+                        1. Create Google Service Account credentials
+                        2. Add credentials to Streamlit secrets
+                        3. Share your spreadsheet with the service account email
+                        
+                        See instructions below for details.
+                        """)
+                    else:
+                        success, write_error = write_to_google_sheet(
+                            client, 
+                            spreadsheet_url, 
+                            st.session_state.df, 
+                            sheet_name
+                        )
+                        
+                        if success:
+                            st.success(f"✅ Successfully written to Google Sheets: {sheet_name}")
+                        else:
+                            st.error(f"❌ {write_error}")
     
     # Summary
     if len(st.session_state.df) > 0:
