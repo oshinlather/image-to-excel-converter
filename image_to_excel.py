@@ -281,6 +281,22 @@ with col_left:
                         
                         st.session_state.df = df
                         st.success("✅ Data extracted successfully!")
+                        
+                        # Auto-sync to Google Sheets if configured
+                        if hasattr(st, 'secrets') and 'GOOGLE_SHEET_URL' in st.secrets:
+                            sheet_url = st.secrets.get('GOOGLE_SHEET_URL', '')
+                            sheet_name = st.secrets.get('GOOGLE_SHEET_NAME', 'Sheet1')
+                            
+                            if sheet_url and sheet_url != 'YOUR_SPREADSHEET_URL_HERE':
+                                with st.spinner("📤 Auto-syncing to Google Sheets..."):
+                                    client, sync_error = connect_to_google_sheets()
+                                    if not sync_error:
+                                        success, write_error = write_to_google_sheet(client, sheet_url, df, sheet_name)
+                                        if success:
+                                            st.success(f"✅ Auto-synced to Google Sheets: {sheet_name}")
+                                        else:
+                                            st.warning(f"⚠️ Extraction successful, but auto-sync failed: {write_error}")
+                        
                         st.rerun()
     else:
         # Upload placeholder
@@ -372,9 +388,18 @@ with col_right:
     st.markdown("---")
     st.markdown("### 📊 Write to Google Sheets")
     
+    # Check if auto-sync is configured
+    default_sheet_url = st.secrets.get('GOOGLE_SHEET_URL', '') if hasattr(st, 'secrets') else ''
+    default_sheet_name = st.secrets.get('GOOGLE_SHEET_NAME', 'Sheet1') if hasattr(st, 'secrets') else 'Sheet1'
+    auto_sync_enabled = default_sheet_url and default_sheet_url != 'YOUR_SPREADSHEET_URL_HERE'
+    
+    if auto_sync_enabled:
+        st.info("✅ **Auto-sync enabled!** Data automatically writes to your configured spreadsheet after extraction.")
+    
     # Spreadsheet URL input
     spreadsheet_url = st.text_input(
         "Google Spreadsheet URL",
+        value=default_sheet_url if default_sheet_url != 'YOUR_SPREADSHEET_URL_HERE' else '',
         placeholder="https://docs.google.com/spreadsheets/d/...",
         help="Paste the full URL of your Google Spreadsheet"
     )
@@ -384,7 +409,7 @@ with col_right:
     with col_sheet1:
         sheet_name = st.text_input(
             "Sheet Name",
-            value="Sheet1",
+            value=default_sheet_name,
             help="Name of the sheet to write data to"
         )
     
