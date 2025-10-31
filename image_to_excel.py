@@ -285,37 +285,40 @@ with col_left:
                             df['Required Qty'] = df['Required Qty'].apply(calculate_expression)
                         
                         st.session_state.df = df
-                        st.success("✅ Data extracted successfully!")
                         
-                        # Debug: Check auto-sync configuration
+                        # Store sync status in session state
+                        st.session_state.extraction_complete = True
+                        st.session_state.sync_attempted = False
+                        
+                        # Auto-sync to Google Sheets if configured
                         has_secrets = hasattr(st, 'secrets')
                         has_url = 'GOOGLE_SHEET_URL' in st.secrets if has_secrets else False
                         
-                        # Auto-sync to Google Sheets if configured
                         if has_secrets and has_url:
                             sheet_url = st.secrets.get('GOOGLE_SHEET_URL', '')
                             sheet_name = st.secrets.get('GOOGLE_SHEET_NAME', 'Sheet1')
                             
-                            st.info(f"🔍 Auto-sync check: URL={'YES' if sheet_url else 'NO'}, Valid={'YES' if sheet_url != 'YOUR_SPREADSHEET_URL_HERE' else 'NO'}")
-                            
                             if sheet_url and sheet_url != 'YOUR_SPREADSHEET_URL_HERE':
-                                with st.spinner("📤 Auto-syncing to Google Sheets..."):
+                                try:
                                     client, sync_error = connect_to_google_sheets()
                                     
-                                    if sync_error:
-                                        st.error(f"❌ Connection error: {sync_error}")
-                                    else:
-                                        st.info("✅ Connected to Google Sheets API")
+                                    if not sync_error:
                                         success, write_error = write_to_google_sheet(client, sheet_url, df, sheet_name)
                                         
                                         if success:
-                                            st.success(f"✅ Auto-synced to Google Sheets: {sheet_name}")
+                                            st.session_state.sync_status = "success"
+                                            st.session_state.sync_message = f"Auto-synced to Google Sheets: {sheet_name}"
                                         else:
-                                            st.error(f"❌ Write failed: {write_error}")
-                            else:
-                                st.warning("⚠️ Auto-sync not configured properly")
-                        else:
-                            st.warning(f"⚠️ Secrets check: has_secrets={has_secrets}, has_url={has_url}")
+                                            st.session_state.sync_status = "error"
+                                            st.session_state.sync_message = f"Write failed: {write_error}"
+                                    else:
+                                        st.session_state.sync_status = "error"
+                                        st.session_state.sync_message = f"Connection error: {sync_error}"
+                                except Exception as e:
+                                    st.session_state.sync_status = "error"
+                                    st.session_state.sync_message = f"Exception: {str(e)}"
+                                
+                                st.session_state.sync_attempted = True
                         
                         st.rerun()
     else:
@@ -331,6 +334,15 @@ with col_left:
 # RIGHT COLUMN - Extracted Data
 with col_right:
     st.markdown("### 📊 Extracted Data")
+    
+    # Show sync status if extraction was completed
+    if hasattr(st.session_state, 'extraction_complete') and st.session_state.extraction_complete:
+        if hasattr(st.session_state, 'sync_attempted') and st.session_state.sync_attempted:
+            if st.session_state.get('sync_status') == 'success':
+                st.success(f"✅ {st.session_state.get('sync_message', 'Synced successfully')}")
+            elif st.session_state.get('sync_status') == 'error':
+                st.error(f"❌ {st.session_state.get('sync_message', 'Sync failed')}")
+        st.session_state.extraction_complete = False
     
     # Info message about auto-calculation
     st.info("💡 **Tip:** Type math expressions like '50+5' in quantity fields - they'll auto-calculate!", icon="✨")
