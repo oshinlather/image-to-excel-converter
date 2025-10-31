@@ -335,6 +335,13 @@ with col_left:
 with col_right:
     st.markdown("### 📊 Extracted Data")
     
+    # Debug: Show what secrets are available
+    if hasattr(st, 'secrets'):
+        available_keys = list(st.secrets.keys())
+        st.info(f"🔍 Debug: Available secrets keys: {available_keys}")
+    else:
+        st.error("❌ Debug: st.secrets is not available!")
+    
     # Show sync status if extraction was completed
     if hasattr(st.session_state, 'extraction_complete') and st.session_state.extraction_complete:
         if hasattr(st.session_state, 'sync_attempted') and st.session_state.sync_attempted:
