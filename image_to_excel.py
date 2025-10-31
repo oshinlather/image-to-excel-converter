@@ -37,20 +37,25 @@ def connect_to_google_sheets():
     """Connect to Google Sheets using service account credentials"""
     try:
         # Try to get credentials from Streamlit secrets
-        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
-            credentials = Credentials.from_service_account_info(
-                st.secrets["gcp_service_account"],
-                scopes=[
-                    "https://www.googleapis.com/auth/spreadsheets",
-                    "https://www.googleapis.com/auth/drive"
-                ]
-            )
-            client = gspread.authorize(credentials)
-            return client, None
-        else:
-            return None, "Google Sheets credentials not found in secrets"
+        if not hasattr(st, 'secrets'):
+            return None, "Streamlit secrets not available"
+        
+        if 'gcp_service_account' not in st.secrets:
+            available_keys = list(st.secrets.keys()) if hasattr(st.secrets, 'keys') else []
+            return None, f"gcp_service_account not found in secrets. Available keys: {available_keys}"
+        
+        credentials = Credentials.from_service_account_info(
+            dict(st.secrets["gcp_service_account"]),
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
+            ]
+        )
+        client = gspread.authorize(credentials)
+        return client, None
     except Exception as e:
-        return None, f"Failed to connect to Google Sheets: {str(e)}"
+        import traceback
+        return None, f"Failed to connect to Google Sheets: {str(e)}\n{traceback.format_exc()}"
 
 def write_to_google_sheet(client, spreadsheet_url, df, sheet_name="Sheet1"):
     """Write dataframe to Google Sheets"""
