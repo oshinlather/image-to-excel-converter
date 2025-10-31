@@ -287,20 +287,35 @@ with col_left:
                         st.session_state.df = df
                         st.success("✅ Data extracted successfully!")
                         
+                        # Debug: Check auto-sync configuration
+                        has_secrets = hasattr(st, 'secrets')
+                        has_url = 'GOOGLE_SHEET_URL' in st.secrets if has_secrets else False
+                        
                         # Auto-sync to Google Sheets if configured
-                        if hasattr(st, 'secrets') and 'GOOGLE_SHEET_URL' in st.secrets:
+                        if has_secrets and has_url:
                             sheet_url = st.secrets.get('GOOGLE_SHEET_URL', '')
                             sheet_name = st.secrets.get('GOOGLE_SHEET_NAME', 'Sheet1')
+                            
+                            st.info(f"🔍 Auto-sync check: URL={'YES' if sheet_url else 'NO'}, Valid={'YES' if sheet_url != 'YOUR_SPREADSHEET_URL_HERE' else 'NO'}")
                             
                             if sheet_url and sheet_url != 'YOUR_SPREADSHEET_URL_HERE':
                                 with st.spinner("📤 Auto-syncing to Google Sheets..."):
                                     client, sync_error = connect_to_google_sheets()
-                                    if not sync_error:
+                                    
+                                    if sync_error:
+                                        st.error(f"❌ Connection error: {sync_error}")
+                                    else:
+                                        st.info("✅ Connected to Google Sheets API")
                                         success, write_error = write_to_google_sheet(client, sheet_url, df, sheet_name)
+                                        
                                         if success:
                                             st.success(f"✅ Auto-synced to Google Sheets: {sheet_name}")
                                         else:
-                                            st.warning(f"⚠️ Extraction successful, but auto-sync failed: {write_error}")
+                                            st.error(f"❌ Write failed: {write_error}")
+                            else:
+                                st.warning("⚠️ Auto-sync not configured properly")
+                        else:
+                            st.warning(f"⚠️ Secrets check: has_secrets={has_secrets}, has_url={has_url}")
                         
                         st.rerun()
     else:
