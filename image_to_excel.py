@@ -384,65 +384,63 @@ with col_right:
             type="primary"
         )
     
-    # Google Sheets Integration
-    st.markdown("---")
-    st.markdown("### 📊 Write to Google Sheets")
-    
-    # Check if auto-sync is configured
+    # Google Sheets Integration - Only show if NOT auto-configured
     default_sheet_url = st.secrets.get('GOOGLE_SHEET_URL', '') if hasattr(st, 'secrets') else ''
     default_sheet_name = st.secrets.get('GOOGLE_SHEET_NAME', 'Sheet1') if hasattr(st, 'secrets') else 'Sheet1'
     auto_sync_enabled = default_sheet_url and default_sheet_url != 'YOUR_SPREADSHEET_URL_HERE'
     
-    if auto_sync_enabled:
-        st.info("✅ **Auto-sync enabled!** Data automatically writes to your configured spreadsheet after extraction.")
-    
-    # Spreadsheet URL input
-    spreadsheet_url = st.text_input(
-        "Google Spreadsheet URL",
-        value=default_sheet_url if default_sheet_url != 'YOUR_SPREADSHEET_URL_HERE' else '',
-        placeholder="https://docs.google.com/spreadsheets/d/...",
-        help="Paste the full URL of your Google Spreadsheet"
-    )
-    
-    # Sheet name input
-    col_sheet1, col_sheet2 = st.columns([2, 1])
-    with col_sheet1:
-        sheet_name = st.text_input(
-            "Sheet Name",
-            value=default_sheet_name,
-            help="Name of the sheet to write data to"
+    # Only show manual controls if auto-sync is NOT configured
+    if not auto_sync_enabled:
+        st.markdown("---")
+        st.markdown("### 📊 Write to Google Sheets")
+        st.info("💡 Configure `GOOGLE_SHEET_URL` in secrets for automatic sync!")
+        
+        # Spreadsheet URL input
+        spreadsheet_url = st.text_input(
+            "Google Spreadsheet URL",
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+            help="Paste the full URL of your Google Spreadsheet"
         )
-    
-    with col_sheet2:
-        if st.button("📤 Write to Sheets", use_container_width=True, type="secondary"):
-            if not spreadsheet_url:
-                st.error("❌ Please enter a Google Spreadsheet URL")
-            else:
-                with st.spinner("Writing to Google Sheets..."):
-                    client, error = connect_to_google_sheets()
-                    
-                    if error:
-                        st.error(f"❌ {error}")
-                        st.info("""
-                        **Setup Required:**
-                        1. Create Google Service Account credentials
-                        2. Add credentials to Streamlit secrets
-                        3. Share your spreadsheet with the service account email
+        
+        # Sheet name input
+        col_sheet1, col_sheet2 = st.columns([2, 1])
+        with col_sheet1:
+            sheet_name = st.text_input(
+                "Sheet Name",
+                value="Sheet1",
+                help="Name of the sheet to write data to"
+            )
+        
+        with col_sheet2:
+            if st.button("📤 Write to Sheets", use_container_width=True, type="secondary"):
+                if not spreadsheet_url:
+                    st.error("❌ Please enter a Google Spreadsheet URL")
+                else:
+                    with st.spinner("Writing to Google Sheets..."):
+                        client, error = connect_to_google_sheets()
                         
-                        See instructions below for details.
-                        """)
-                    else:
-                        success, write_error = write_to_google_sheet(
-                            client, 
-                            spreadsheet_url, 
-                            st.session_state.df, 
-                            sheet_name
-                        )
-                        
-                        if success:
-                            st.success(f"✅ Successfully written to Google Sheets: {sheet_name}")
+                        if error:
+                            st.error(f"❌ {error}")
+                            st.info("""
+                            **Setup Required:**
+                            1. Create Google Service Account credentials
+                            2. Add credentials to Streamlit secrets
+                            3. Share your spreadsheet with the service account email
+                            
+                            See instructions below for details.
+                            """)
                         else:
-                            st.error(f"❌ {write_error}")
+                            success, write_error = write_to_google_sheet(
+                                client, 
+                                spreadsheet_url, 
+                                st.session_state.df, 
+                                sheet_name
+                            )
+                            
+                            if success:
+                                st.success(f"✅ Successfully written to Google Sheets: {sheet_name}")
+                            else:
+                                st.error(f"❌ {write_error}")
     
     # Summary
     if len(st.session_state.df) > 0:
